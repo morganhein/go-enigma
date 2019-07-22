@@ -1,119 +1,102 @@
 package go_enigma
 
-import "strings"
+import (
+	"strings"
 
-//https://charlesreid1.github.io/enigma-cipher-implementation-part-3-enigma-in-java-without-objects.html
-/*
-define plaintext message
-define normal alphabet and scrambled alphabets
-define list of switchboard swap pairs
-define list of reflector swap pairs
-for each character in plaintext message:
-
-    # Apply switchboard transformation
-    for each pair in switchboard swap pairs:
-        if character in swap pair, swap its value
-
-    # Apply forward rotor transformation
-    for each scrambled alphabet:
-        get index of character in normal alphabet
-        get new character at that index in scrambled alphabet
-        replace character with new character
-
-    # Apply reflector transformation
-    for each pair in reflector swap pairs:
-        if character in swap pair, swap its value
-
-    # Apply reverse rotor transformation
-    for each scrambled alphabet:
-        get index of input character in scrambled alphabet
-        get new character at that index in normal alphabet
-        replace character with new character
-
-    # Apply switchboard transformation
-    for each pair in switchboard swap pairs:
-        if character in swap pair, swap its value
-
-    concatenate transformed input character to ciphertext message
-
-    # Increment rotor wheels
-    for each rotor/scrambled alphabet, left to right:
-        get index of left notch in left alphabet
-        get index of right notch in right alphabet
-        if left index equals right index:
-            cycle left alphabet forward 1 character
-    cycle right-most alphabet forward 1 character
-*/
-type Rotor struct {
-	Layout string
-	Notch  string
-}
-
-const (
-	ALPHABET string = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 )
 
-var (
-	rotors = []Rotor{
-		Rotor{ // Rotor I    - Royal
-			Layout: "EKMFLGDQVZNTOWYHXUSPAIBRCJ",
-			Notch:  "R",
-		},
-		Rotor{ // Rotor II   - Flags
-			Layout: "AJDKSIRUXBLHWTMCQGZNPYFVOE",
-			Notch:  "F",
-		},
-		Rotor{ // Rotor V - Wave
-			Layout: "BDFHJLCPRTXVZNYEIWGAKMUSQO",
-			Notch:  "W",
-		},
-		Rotor{ // Rotor IV   - Kings
-			Layout: "ESOVPZJAYQUIRHXLNFTGKDCMWB",
-			Notch:  "K",
-		},
-		Rotor{ // Rotor V   - Above
-			Layout: "VZBRGITYUPSDNHLXAWMJQOFECK",
-			Notch:  "A",
-		},
-		Rotor{
-			Layout: "JPGVOUMFYQBENHZRDKASXLICTW",
-			Notch:  "AN",
-		},
-		Rotor{
-			Layout: "NZJHGRCXMYSWBOUFAIVLPEKQDT",
-			Notch:  "AN",
-		},
-		Rotor{
-			Layout: "FKQHTLXOCBJSPDZRAMEWNIUYGV",
-			Notch:  "AN",
-		},
-	}
+type direction bool
+
+const (
+	ALPHABET   string    = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	ReflectorA Reflector = "EJMZALYXVBWFCRQUONTSPIKHGD"
+	ReflectorB Reflector = "YRUHQSLDPXNGOKMIEBFZCWVJAT"
+	ReflectorC Reflector = "FVPJIAOYEDRZXWGCTKUQSBNMHL"
+	LEFT       direction = true
+	RIGHT      direction = false
 )
 
 type RotorOrder struct {
-	LRotor Rotor
-	MRotor Rotor
-	RRotor Rotor
+	LRotor Rotor // Left
+	MRotor Rotor // Middle
+	RRotor Rotor // Right
 }
 
-func Encode(message string, switchBoardPairs string, rotors RotorOrder) string {
+var (
+	log *zap.SugaredLogger
+)
+
+func init() {
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync() // flushes buffer, if any
+	log = logger.Sugar()
+}
+
+func Encode(message, plugBoardPairs, rotorAlignment string, rotors RotorOrder, reflector Reflector) (string, error) {
+	if err := reflector.validate(); err != nil {
+		return "", err
+	}
+	//convert all characters to uppercase, since that's the ASCII range all operations are done in
+	//and strip all spaces
+	message = strings.Replace(strings.ToUpper(message), " ", "", -1)
+	log.Infof("Encoding message: %v", message)
+
+	log.Debugw("Input parameters",
+		"plugBoardPairs", plugBoardPairs,
+		"rotorAlignment", rotorAlignment,
+		"rotors", rotors,
+		"reflector", reflector)
+
 	workingStr := ""
-	//perform switchboard swapping
+	//switchboard swapping
 	for _, v := range strings.Split(message, "") {
-		workingStr += swapPairs(v, switchBoardPairs)
+		workingStr += swapPairs(v, plugBoardPairs)
+	}
+	log.Infow("After initial switchboard swapping", "message", workingStr)
+
+	//apply rotorAlignment
+	r := strings.Split(strings.ToUpper(rotorAlignment), "")
+	if len(r) != 3 {
+		return "", xerrors.New("rotorAlignment must be three characters, default is AAA")
+	}
+	rotors.RRotor.current = r[0]
+	rotors.MRotor.current = r[1]
+	rotors.LRotor.current = r[0]
+	rotors.LRotor.current = r[2]
+
+	rotorString := ""
+	//for each character in the message:
+	for _, v := range strings.Split(workingStr, "") {
+		log.Debugf("input character: %v", v)
+		//rotate the rotors first
+		rotors = rotate(rotors)
+		log.Info("Grundstellung: ", rotors.LRotor.current+rotors.MRotor.current+rotors.RRotor.current)
+		//Right to Left through rotors
+		v = translate(rotors, LEFT, v)
+		log.Debugf("after right to left: %v", v)
+		//reflector substitution
+		v = reflect(v, reflector)
+		log.Debugf("after reflection: %v", v)
+		//Left to Right through rotors
+		v = translate(rotors, RIGHT, v)
+		log.Debugf("after left to right: %v", v)
+
+		rotorString += v
 	}
 
-	//rotate the rotors first
-
-	//Right to Left through rotors
-
-	//reflector substitution
-
-	return ""
+	workingStr = ""
+	//switchboard swapping
+	for _, v := range strings.Split(rotorString, "") {
+		workingStr += swapPairs(v, plugBoardPairs)
+	}
+	log.Infof("after post switchboard swapping: %v\n", workingStr)
+	return workingStr, nil
 }
 
-func swapPairs(letter string, switchBoardPairs string) string {
-	for _, v := range strings.Split(switchBoardPairs, ":") {
+func swapPairs(letter string, plugBoardPairs string) string {
+	for _, v := range strings.Split(plugBoardPairs, ":") {
 		if len(v) != 2 {
 			continue
 		}
@@ -127,4 +110,42 @@ func swapPairs(letter string, switchBoardPairs string) string {
 	return letter
 }
 
-func passThroughRotor(letter string, rotor Rotor, direction string)
+func rotate(rotors RotorOrder) RotorOrder {
+	log.Debug("rotating rotors")
+	switch {
+	case rotors.LRotor.next() == rotors.LRotor.Notch:
+		log.Debug("left notch triggered")
+		rotors.LRotor.rotate()
+		rotors.MRotor.rotate()
+	case rotors.MRotor.next() == rotors.MRotor.Notch:
+		log.Debug("middle notch triggered")
+		rotors.LRotor.rotate()
+		rotors.MRotor.rotate()
+	case rotors.RRotor.next() == rotors.RRotor.Notch:
+		log.Debug("right notch triggered")
+		rotors.MRotor.rotate()
+	}
+	//always rotate the right rotor no matter what
+	rotors.RRotor.rotate()
+	return rotors
+}
+
+func translate(rotors RotorOrder, d direction, letter string) string {
+	//if we're translating from right to left
+	if d == LEFT {
+		letter = rotors.RRotor.getTranslation(letter, LEFT)
+		letter = rotors.MRotor.getTranslation(letter, LEFT)
+		letter = rotors.LRotor.getTranslation(letter, LEFT)
+		return letter
+	}
+	//if we're translating left to right
+	letter = rotors.LRotor.getTranslation(letter, RIGHT)
+	letter = rotors.MRotor.getTranslation(letter, RIGHT)
+	letter = rotors.RRotor.getTranslation(letter, RIGHT)
+	return letter
+}
+
+func reflect(letter string, r Reflector) string {
+	index := strings.Index(ALPHABET, letter)
+	return string(r[index])
+}
