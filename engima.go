@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
-	"golang.org/x/xerrors"
 )
 
 type direction bool
@@ -18,7 +17,7 @@ const (
 	RIGHT      direction = false
 )
 
-type RotorOrder struct {
+type RotorSettings struct {
 	LRotor Rotor // Left
 	MRotor Rotor // Middle
 	RRotor Rotor // Right
@@ -34,7 +33,7 @@ func init() {
 	log = logger.Sugar()
 }
 
-func Encode(message, plugBoardPairs, rotorAlignment string, rotors RotorOrder, reflector Reflector) (string, error) {
+func Encode(message, plugBoardPairs string, rotors RotorSettings, reflector Reflector) (string, error) {
 	if err := reflector.validate(); err != nil {
 		return "", err
 	}
@@ -45,7 +44,6 @@ func Encode(message, plugBoardPairs, rotorAlignment string, rotors RotorOrder, r
 
 	log.Debugw("Input parameters",
 		"plugBoardPairs", plugBoardPairs,
-		"rotorAlignment", rotorAlignment,
 		"rotors", rotors,
 		"reflector", reflector)
 
@@ -56,23 +54,14 @@ func Encode(message, plugBoardPairs, rotorAlignment string, rotors RotorOrder, r
 	}
 	log.Infow("After initial switchboard swapping", "message", workingStr)
 
-	//apply rotorAlignment
-	r := strings.Split(strings.ToUpper(rotorAlignment), "")
-	if len(r) != 3 {
-		return "", xerrors.New("rotorAlignment must be three characters, default is AAA")
-	}
-	rotors.RRotor.current = r[0]
-	rotors.MRotor.current = r[1]
-	rotors.LRotor.current = r[0]
-	rotors.LRotor.current = r[2]
-
 	rotorString := ""
 	//for each character in the message:
 	for _, v := range strings.Split(workingStr, "") {
 		log.Debugf("input character: %v", v)
 		//rotate the rotors first
 		rotors = rotate(rotors)
-		log.Info("Grundstellung: ", rotors.LRotor.current+rotors.MRotor.current+rotors.RRotor.current)
+		log.Info("Grundstellung: ", string(rotors.LRotor.Offset+65)+string(rotors.MRotor.Offset+65)+
+			string(rotors.RRotor.Offset+65))
 		//Right to Left through rotors
 		v = translate(rotors, LEFT, v)
 		log.Debugf("after right to left: %v", v)
@@ -110,27 +99,20 @@ func swapPairs(letter string, plugBoardPairs string) string {
 	return letter
 }
 
-func rotate(rotors RotorOrder) RotorOrder {
+func rotate(rotors RotorSettings) RotorSettings {
 	log.Debug("rotating rotors")
-	switch {
-	case rotors.LRotor.next() == rotors.LRotor.Notch:
-		log.Debug("left notch triggered")
-		rotors.LRotor.rotate()
-		rotors.MRotor.rotate()
-	case rotors.MRotor.next() == rotors.MRotor.Notch:
-		log.Debug("middle notch triggered")
-		rotors.LRotor.rotate()
-		rotors.MRotor.rotate()
-	case rotors.RRotor.next() == rotors.RRotor.Notch:
-		log.Debug("right notch triggered")
-		rotors.MRotor.rotate()
+	rnotch := rotors.RRotor.rotate()
+	mnotch := false
+	if rnotch {
+		mnotch = rotors.MRotor.rotate()
 	}
-	//always rotate the right rotor no matter what
-	rotors.RRotor.rotate()
+	if mnotch {
+		rotors.LRotor.rotate()
+	}
 	return rotors
 }
 
-func translate(rotors RotorOrder, d direction, letter string) string {
+func translate(rotors RotorSettings, d direction, letter string) string {
 	//if we're translating from right to left
 	if d == LEFT {
 		letter = rotors.RRotor.getTranslation(letter, LEFT)
