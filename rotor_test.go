@@ -74,18 +74,80 @@ func TestGetTranslationWithOffset(t *testing.T) {
 
 	r = makeRotors()[0]
 	r.setRotor("B")
-	l = r.getTranslation()
+
+	r.setRotor("A")
+	l = r.getTranslation("A", RIGHT)
+	assert.Equal(t, "U", l)
+
+	r.setRotor("Z")
+	l = r.getTranslation("F", RIGHT)
+	assert.Equal(t, "U", l)
 }
 
 func TestRotate(t *testing.T) {
-	r := Rotor{
-		Offset: 0,
-	}
+	r := Rotor{}
 	r.rotate()
 	assert.Equal(t, 1, r.Offset)
 	r.rotate()
 	assert.Equal(t, 2, r.Offset)
-	r.Offset = 2
 	r.rotate()
 	assert.Equal(t, 3, r.Offset)
+}
+
+func TestGetLetterFromAlphabet(t *testing.T) {
+	r := Rotor{}
+	l := r.getLetterFromAlphabet(0, ALPHABET)
+	assert.Equal(t, "A", l)
+
+	l = r.getLetterFromAlphabet(1, ALPHABET)
+	assert.Equal(t, "B", l)
+
+	l = r.getLetterFromAlphabet(-1, ALPHABET)
+	assert.Equal(t, "Z", l)
+
+	l = r.getLetterFromAlphabet(-2, ALPHABET)
+	assert.Equal(t, "Y", l)
+
+	l = r.getLetterFromAlphabet(26, ALPHABET)
+	assert.Equal(t, "A", l)
+}
+
+func TestCodesAndCiphersExample(t *testing.T) {
+	//https://www.codesandciphers.org.uk/enigma/example1.htm
+	rotors := makeRotors()
+	rs := RotorSettings{
+		LRotor: rotors[0],
+		MRotor: rotors[1],
+		RRotor: rotors[2],
+	}
+	rs.RRotor.setRotor("Z")
+	result, _ := Encode("G", "", rs, ReflectorB)
+	assert.Equal(t, "P", result)
+}
+
+func TestRotorRightNotch(t *testing.T) {
+	rotors := makeRotors()
+	order := RotorSettings{
+		LRotor: rotors[0],
+		MRotor: rotors[1],
+		RRotor: rotors[2],
+	}
+	order.RRotor.setRotor("V")
+
+	output, err := Encode("A", "", order, ReflectorB)
+	assert.NoError(t, err)
+	assert.Equal(t, "U", output)
+}
+
+func TestBOffset(t *testing.T) {
+	rotors := makeRotors()
+	order := RotorSettings{
+		LRotor: rotors[0],
+		MRotor: rotors[1],
+		RRotor: rotors[2],
+	}
+	order.RRotor.setRotor("B")
+	output, err := Encode("A", "", order, ReflectorB)
+	assert.NoError(t, err)
+	assert.Equal(t, "D", output)
 }

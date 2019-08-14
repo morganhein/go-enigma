@@ -72,31 +72,35 @@ func (r *Rotor) getVisibleCharacter() string {
 
 func (r *Rotor) getTranslation(letter string, d direction) string {
 	initialLetter := ""
+	toOffset := 0
 	defer func() {
 		log.Debugw("rotor translation",
 			"from", letter,
 			"to", initialLetter,
-			"alphabet", r.Alphabet)
+			"direction", func() string {
+				if d {
+					return "left"
+				}
+				return "right"
+			}(),
+			"alphabet", r.Alphabet,
+			"offset", r.Offset,
+			"toOffset", toOffset)
 	}()
 	if d == LEFT {
-		tOffset := strings.Index(ALPHABET, letter) + r.Offset
-		initialLetter = r.getLetterFromAlphabet(tOffset, r.Alphabet)
+		toOffset = strings.Index(ALPHABET, letter) + r.Offset
+		initialLetter = r.getLetterFromAlphabet(toOffset, r.Alphabet)
 		return initialLetter
 	}
 	//right
-	tOffset := strings.Index(r.Alphabet, letter) - r.Offset
-	initialLetter = r.getLetterFromAlphabet(tOffset, ALPHABET)
+	toOffset = strings.Index(r.Alphabet, letter) - r.Offset
+	initialLetter = r.getLetterFromAlphabet(toOffset, ALPHABET)
 	return initialLetter
 }
 
 func (r *Rotor) getLetterFromAlphabet(index int, alphabet string) string {
-	if index > 25 {
-		index = index - 26
-	}
-	if index < 0 {
-		index = 26 + index //index should be a negative number in this case
-	}
-	return string(alphabet[index])
+	l := ((index % len(alphabet)) + len(alphabet)) % len(alphabet)
+	return string(alphabet[l])
 }
 
 //setRing is analogous to the Ringstellung
@@ -108,4 +112,8 @@ func (r *Rotor) setRing(letter string) {
 func (r *Rotor) setRotor(letter string) {
 	letter = strings.ToUpper(letter)
 	r.Offset = int(letter[0]) - 65
+	log.Infow("Setting rotor",
+		"requested letter", letter,
+		"index", r.Offset,
+		"maps to", string(r.Alphabet[r.Offset]))
 }
